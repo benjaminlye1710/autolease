@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Dec 24 09:55:05 2021
-
-@author: AnikaLeeTH
-"""
-
-
 ### Import Pacakges
 import pandas as pd
 import numpy as np
