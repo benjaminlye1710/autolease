@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Dec 29 18:33:56 2021
-
-@author: AnikaLeeTH
-"""
 from dependencies import *
 
 # Initialise the excel misc functions to use
