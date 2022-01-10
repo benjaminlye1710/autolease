@@ -1,4 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec 29 18:33:56 2021
+
+@author: AnikaLeeTH
+"""
 from dependencies import *
+from dependencies import ExcelHelper
 
 # Initialise the excel misc functions to use
 Excel_Misc_Fns = ExcelHelper()
@@ -69,17 +76,44 @@ class OneContract:
         
         if cond.all(): # if it's a remeasurement case
             schedule_start = self.pfy_start
-        else:
+            
+        else: # all other cases start from the start of current FY
             dates = []
             frs_start = datetime.datetime(2019,1,1).date()
             dates.append(frs_start)
             contract_fy_start = pd.to_datetime(df['contract_fy_start'].unique()[0])
+            
+            # adjust month by -12 months -> 1 year ago
             contract_pfy_start = (shift_month(contract_fy_start,
                                               -12, month_begin = True))
             dates.append(contract_pfy_start)
-            schedule_start = max(dates)
+            schedule_start = max(dates) # max finds the more recent date
             
         self.schedule_start = schedule_start
+        
+    def first_day_month(self, date):
+        '''
+        to compare if the given date is the first date of the month
+        '''
+        # replace the day to get the first day of the specified month 
+        first_day = date.datetime.replace(day=1)
+        
+        return first_day
+    
+    
+    def last_day_month(self, date):
+        '''
+        to compare if the given date is the first date of the month
+        '''
+        
+        # use calendar package to get the max number of days of the specified month and year
+        date_num = calendar.monthrange(date.year, date.month)[1]
+        
+        # replace the day to get the last day of the specified month and year
+        last_day = date.datetime.replace(day=date_num)
+        
+        return last_day
+        
         
     def get_schedule_end(self):
         """
@@ -100,7 +134,11 @@ class OneContract:
         cond_add = df['Type'].str.contains('Addition')
         
         branch_df = pd.DataFrame()
+        
+        # fill in branch_df with "Month" column
         if cond.all(): # if its a remeasurement case
+            
+            # Month column in excel, returns a fixed period index
             branch_df['Month'] = (
                 pd.period_range(self.schedule_start, self.schedule_end, freq = 'M'))
 
@@ -120,10 +158,35 @@ class OneContract:
                        axis = 1)
                 )
             
+           
+            
+            # explode() function is used to transform each element of a list-like to a row
+            # replicating the index values
             branch_df = branch_df.explode('Month')
         
         df_unpivot = df.copy()
         
+        # df_not_start = pd.DataFrame()
+        # df_not_start['not_start'] = ''        
+        # numbers = range(len(df_unpivot))
+        # seq = [number for number in numbers] 
+        # df_not_start['Index'] = seq
+        # idx = 0
+        # for date in df_unpivot['Lease Start']:
+        #     if date != self.first_day_month(date):
+        #         df_unpivot.at[idx, 'not_start'] = True
+        #     idx += 1
+        
+        # date_cond_start = [df_unpivot['Lease Start']==self.first_day_month(df_unpivot['Lease Start'])]
+                                                                           
+        # date_cond_end = [df_unpivot['Lease End']==self.last_day_month(df_unpivot['Lease End'])]
+        
+        # date_res = [True]
+        
+        # df_unpivot['not_start'] = np.select(date_cond_start, date_res, False)
+        
+        # df_unpivot['not_end'] = np.select(date_cond_end, date_res, False)
+        #
         # remeasurement/addition case
         if cond.all() or cond_add.all():  
     
@@ -160,7 +223,27 @@ class OneContract:
             
             df_unpivot['Fixed lease payment'] =  factors * df_unpivot['Rental/mth (PFY)']
             df_unpivot['Fixed lease payment (PFY)'] = factors * df_unpivot['Rental/mth (PFY)']
-    
+            
+        
+        # contr_start = self.schedule_end
+        # contr_end = self.schedule_start
+
+        
+        # For first month
+        # first_day_f_mth = self.first_day_month(contr_start)
+        # last_day_f_mth = self.last_day_month(contr_start)
+
+        # #For last month
+        # first_day_l_mth = self.first_day_month(contr_end)
+        # last_day_l_mth = self.last_day_month(contr_end)
+        
+        # if first_day_f_mth != contr_start:
+        #     diff_1 = (last_day_f_mth - contr_start).days + 1
+        #     df_unpivot['Fixed lease payment'][0] = df_unpivot['Fixed lease payment'][0] * (diff_1/last_day_f_mth.day)
+            
+        # if last_day_l_mth != contr_end:
+        #     diff_2 = (contr_end - first_day_l_mth).days + 1
+        #     df_unpivot['Fixed lease payment'][0] = df_unpivot['Fixed lease payment'][0] * (diff_2/last_day_f_mth.day)
         
         self.df = df.copy()
         self.branch_df = branch_df.copy()
@@ -305,7 +388,8 @@ class OneContractSchedule(OneContract):
             old_num_months = 0
             old_num_years = 0
         
-        new_num_months = new_branch_df_not_null[""].max()
+        # new_num_months = new_branch_df_not_null[""].max()
+        new_num_months = new_branch_df[""].max()
         new_num_years = math.ceil(new_num_months/12)
         
         # get first row start
@@ -435,7 +519,8 @@ class OneContractSchedule(OneContract):
         row = pd.Series({'Month'                :'Total',
                          ''                     :'',
                          'Fixed lease payment'  :flp_total})
-        row.name = int(self.new_final_row_idx)-1
+        # row.name = int(self.new_final_row_idx)-1
+        row.name = full_year_df.index.max() + 1
         df_summed = full_year_df.append([row])
         
         cond = self.df['Type'].str.contains('Remeasurement')
@@ -503,6 +588,7 @@ class OneContractSchedule(OneContract):
         df = self.df.copy()
         schedule_start = pd.to_datetime(self.schedule_start)
         
+        # adjust month by -12 months -> 1 year ago
         ppfy_start = (shift_month(pd.to_datetime(self.schedule_start),
                                   -12, month_begin = True))
         
@@ -510,14 +596,19 @@ class OneContractSchedule(OneContract):
         
         dates_before_pfy_start = []
         for x in remeasurement_dates:
-            if pd.to_datetime(x) < schedule_start:
+            if pd.to_datetime(x) < schedule_start: # if remeasurement date is earlier than sched start
+                # add remeasurement date to "dates_before_pfy_start" list
                 dates_before_pfy_start.append(pd.to_datetime(x))
                 
-        if not dates_before_pfy_start:
+        if not dates_before_pfy_start: # if list is empty which means all remeasurement dates are later than pfy start
+            # get contract start date
             contract_start = pd.to_datetime(
                 df['contract_start_date_pfy'].unique()[0])
+            # number of months from contract start date
             schedule_period_start = (schedule_start.year - contract_start.year)*12 \
                 + (schedule_start.month - contract_start.month) + 1
+                
+            # if schedule start is earlier than contract start, return 0
             schedule_period_start = max(0,schedule_period_start)
         else:
             last_remeasurement = dates_before_pfy_start[-1]
@@ -704,13 +795,13 @@ class OneContractSchedule(OneContract):
         
         if row_idx == first_row:
             
-            cells_df.at['ll', 'cell_value'] = if_formula(
-                isblank_formula(cells['flp'], equal_sign = False), 
-                0, 
-                sum_formula(xlref(first_row, 9), 
-                            xlref(final_row_idx_full, 9), 
-                            equal_sign=False)
-                )
+            contract_type = assert_one_and_get(df['Type'].unique())
+            if contract_type == 'Addition':
+                cells_df.at['ll', 'cell_value'] = \
+                    f"=IF(ISBLANK({cells['flp']}),0,SUM(R{first_row}:R{final_row_idx_full}))"
+            else:
+                cells_df.at['ll', 'cell_value'] = \
+                    f"=IF(ISBLANK({cells['flp']}),0,SUM(I{first_row}:I{final_row_idx_full}))"
             
             cells_df.at['la', 'cell_value'] = '=' + cells['ll']
             
@@ -772,8 +863,9 @@ class OneContractSchedule(OneContract):
         
         final_row_idx_full = self.old_final_row_idx_full
         first_filled_row = self.old_lease_start_row_idx
-        num_rows = self.old_num_months
+        num_rows = self.old_num_months 
         first_row = self.first_row
+        
         
         XL_Fns = Excel_Misc_Fns
         sum_formula = XL_Fns.sum_formula
@@ -789,6 +881,7 @@ class OneContractSchedule(OneContract):
             row_formulae.append(row)
             
         row_df = pd.DataFrame(row_formulae).reset_index(drop=True)
+        row_df = row_df.reindex(self.old_branch_df.index).copy()
         
         full_year_df = self.fill_full_year(row_df)
         
@@ -1693,6 +1786,15 @@ class OneContractDisclosure(OneContractSchedule):
 
     def load_amt_formulae_to_df(self):
         
+        disc_ref = self.disc_amt_ref
+        date_dict = self.disclosure_date_dict
+        schedule_df = self.schedule_df.copy()
+        sum_formula = Excel_Misc_Fns.sum_formula
+        addition_formula = Excel_Misc_Fns.addition_formula
+        subtraction_formula = Excel_Misc_Fns.subtraction_formula
+        if_formula = Excel_Misc_Fns.if_formula
+        isblank_formula = Excel_Misc_Fns.isblank_formula
+        
         disc_df = self.disc_amt_ref_df.copy()
         formula_ = self.disclosure_formulae_dict.copy()
         
@@ -1756,6 +1858,15 @@ class OneContractDisclosure(OneContractSchedule):
     
     def load_date_formulae_to_df(self):
         
+        disc_ref = self.disc_amt_ref
+        date_dict = self.disclosure_date_dict
+        schedule_df = self.schedule_df.copy()
+        sum_formula = Excel_Misc_Fns.sum_formula
+        addition_formula = Excel_Misc_Fns.addition_formula
+        subtraction_formula = Excel_Misc_Fns.subtraction_formula
+        if_formula = Excel_Misc_Fns.if_formula
+        isblank_formula = Excel_Misc_Fns.isblank_formula
+        
         date_df = self.disc_date_ref_df.copy()
         date_df_2 = date_df.copy()
         
@@ -1812,8 +1923,8 @@ class OneContractDisclosure(OneContractSchedule):
             date_df.at['remeasurement_date_1', 'cell_value'] = date_dict['remeasurement_date']
             date_df.at['remeasurement_date_2', 'cell_value'] = date_dict['remeasurement_date']
         
-        if date_dict['start_date'] < date_dict['cfy_opn'] and date_dict['start_date'] > date_dict['pfy_opn']: 
-            date_df.at['start_date_2', 'cell_value'] = if_formula("AND(ISBLANK(AZ10), ISBLANK(AZ11))", date_dict['start_date'], )
+        # if date_dict['start_date'] < date_dict['cfy_opn'] and date_dict['start_date'] > date_dict['pfy_opn']: 
+        #     date_df.at['start_date_2', 'cell_value'] = if_formula("AND(ISBLANK(AZ10), ISBLANK(AZ11))", date_dict['start_date'], )
     
         if (not cond_disposal.any()) or (date_dict['disposal_date'] > date_dict['cfy_opn']):
         # Contract is not Disposed at all, or is Disposed in CFY
