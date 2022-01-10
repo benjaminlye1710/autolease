@@ -126,9 +126,10 @@ if __name__ == "__main__":
         # input_fp = r"D:\Documents\autolease-main\FRS 116 - Workings List co - sample output_anonymised INPUT.xlsx"
         # output_fp = r'D:\Documents\autolease-main\FRS 116 - Workings List co - sample output_anonymised OUTPUT v' + f'{datetime.date.today().strftime("%Y%m%d")}' + '.xlsx'
         
-        input_fp = "D:\Documents\Lease Liability\FRS 116 - Workings List co - sample output_anonymised.xlsx"
-        output_fp = "D:\Documents\Lease Liability\FRS 116 - Workings List co - OUTPUT test.xlsx" 
+        input_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE_real.xlsx"
+        output_fp = r"D:\Documents\Lease Liability\FRS 116 - Workings List co - OUTPUT5 test.xlsx" 
         
+        # input_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE.xlsx"
         # input_fp = "D:\Documents\Lease Liability\margaret\FRS 116 - Workings List co - sample output_anonymised_Version_SentToEngagementTeam.xlsx"
         # output_fp = "D:/Documents/Lease Liability/margaret/FRS 116 - Workings List co - sample output_anonymised_Version_SentToEngagementTeam OUTPUT.xlsx"
         
