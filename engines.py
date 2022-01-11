@@ -6,6 +6,7 @@ Created on Wed Dec 29 18:33:56 2021
 """
 from dependencies import *
 from dependencies import ExcelHelper
+from pandas import PeriodIndex
 
 # Initialise the excel misc functions to use
 Excel_Misc_Fns = ExcelHelper()
@@ -96,7 +97,7 @@ class OneContract:
         to compare if the given date is the first date of the month
         '''
         # replace the day to get the first day of the specified month 
-        first_day = date.datetime.replace(day=1)
+        first_day = date.replace(day=1)
         
         return first_day
     
@@ -110,7 +111,7 @@ class OneContract:
         date_num = calendar.monthrange(date.year, date.month)[1]
         
         # replace the day to get the last day of the specified month and year
-        last_day = date.datetime.replace(day=date_num)
+        last_day = date.replace(day=date_num)
         
         return last_day
         
@@ -156,8 +157,7 @@ class OneContract:
                 branch_df[full_date_range_col_lst]
                 .apply(lambda x: pd.period_range(x[0], x[1], freq = 'M'), 
                        axis = 1)
-                )
-            
+                )      
            
             
             # explode() function is used to transform each element of a list-like to a row
@@ -165,49 +165,106 @@ class OneContract:
             branch_df = branch_df.explode('Month')
         
         df_unpivot = df.copy()
-        
-        # df_not_start = pd.DataFrame()
-        # df_not_start['not_start'] = ''        
-        # numbers = range(len(df_unpivot))
-        # seq = [number for number in numbers] 
-        # df_not_start['Index'] = seq
-        # idx = 0
-        # for date in df_unpivot['Lease Start']:
-        #     if date != self.first_day_month(date):
-        #         df_unpivot.at[idx, 'not_start'] = True
-        #     idx += 1
-        
-        # date_cond_start = [df_unpivot['Lease Start']==self.first_day_month(df_unpivot['Lease Start'])]
-                                                                           
-        # date_cond_end = [df_unpivot['Lease End']==self.last_day_month(df_unpivot['Lease End'])]
-        
-        # date_res = [True]
-        
-        # df_unpivot['not_start'] = np.select(date_cond_start, date_res, False)
-        
-        # df_unpivot['not_end'] = np.select(date_cond_end, date_res, False)
-        #
+
         # remeasurement/addition case
         if cond.all() or cond_add.all():  
-    
+             
             df_unpivot['Month'] = (
                 df[['Lease Start', 'Lease End']]
                 .apply(lambda x: pd.date_range(x[0], x[1], freq = 'M'), 
                         axis = 1)
                 )
             
-            df_unpivot = df_unpivot.reset_index()
-            df_unpivot = df_unpivot.explode('Month')
+            df_unpivot = df_unpivot.reset_index(drop=True)
+            df_unpivot['Lease Start Month'] = df_unpivot['Lease Start'].dt.to_period(freq = ' M') ##       
+            df_unpivot['Lease End Month'] = df_unpivot['Lease End'].dt.to_period(freq = ' M') ##
+            df_unpivot['test_lag'] = df_unpivot['Lease End Month'].shift()
+                     
+            df_unpivot = df_unpivot.explode('Month') #need to explode without the True duplicating
             
             df_unpivot['Month'] = df_unpivot['Month'].dt.to_period(freq = ' M')
+            df_unpivot = df_unpivot.reset_index(drop=True)
+
+
+            ## To check if lease end date is a full month, if not, manually append the incomplete month as date_range does not include it in
+            last_date_of_lease = df_unpivot.iloc[-1]['Lease End'] # assign the lease end date
+            if last_date_of_lease != self.last_day_month(last_date_of_lease): # if lease end date is not a full month
+                extend_last_month = pd.DataFrame(df_unpivot[-1:].values, columns = df_unpivot.columns) # create a new pandas DF for the last month by copying the previous month
+                last_date_of_lease = last_date_of_lease.to_period(freq='M')
+                extend_last_month['Month'] = last_date_of_lease # change the 'Month' column
+                df_unpivot = df_unpivot.append(extend_last_month) # merge/ append the new DF
+                df_unpivot = df_unpivot.reset_index(drop=True) #reset index
+            
+            ## looping through every month to check if that month needs to be pro-rated (for start of contracts)
+            idx = 0 # reset index to 0 for calling of specific row during iteration
+            for date in df_unpivot['Lease Start']: 
+                if date != self.first_day_month(date): # if contract start date is not the start of the month
+                    # indicate True in not_start column, check first if the month we want to pro-rate is correct before indication boolean (since contracts are duplicated for every month)
+                    if df_unpivot.at[idx, 'Lease Start Month'] == df_unpivot.at[idx, 'Month']:
+                        df_unpivot.at[idx, 'not_start'] = True
+                    else:
+                      df_unpivot.at[idx, 'not_start'] = False  
+                
+                else:
+                    df_unpivot.at[idx, 'not_start'] = False
+                    
+                idx += 1
+            
+            ## looping through every month to check if that month needs to be pro-rated (for end of contracts)
+            idx = 0 
+            for date in df_unpivot['Lease End']:
+                if date != self.last_day_month(date):
+                    if df_unpivot.at[idx, 'test_lag'] == df_unpivot.at[idx, 'Month']:
+                        df_unpivot.at[idx, 'not_end'] = True
+                    else:
+                      df_unpivot.at[idx, 'not_end'] = False 
+                      
+                else:
+                    df_unpivot.at[idx, 'not_end'] = False
+                idx += 1
                         
             factors = 1
             
             df_unpivot['Fixed lease payment'] =  factors * df_unpivot['Rental/mth']
             df_unpivot['Fixed lease payment (PFY)'] = factors * df_unpivot['Rental/mth (PFY)']
-        
-        else: # no change/disposal case
             
+            ## Pro-rating            
+            idx = 0
+            for month in df_unpivot['Month']:
+            ### Case 1: Only not_start True  
+                if df_unpivot.at[idx, 'not_start'] == True and df_unpivot.at[idx, 'not_end'] == False:
+                    date = df_unpivot.at[idx, 'Lease Start']
+                    days = date.day
+                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
+                    days_diff = max_days_in_mth - days + 1
+                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days_diff/max_days_in_mth)
+                    
+                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == False:
+                    date = df_unpivot.at[idx, 'Lease End']
+                    days = date.day
+                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
+                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days/max_days_in_mth)
+                    
+                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == True:
+                    date = df_unpivot.at[idx, 'Lease Start']
+                    days = date.day
+                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
+                    days_diff = max_days_in_mth - days + 1
+                    
+                    first_part_of_mth = (days_diff/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth']
+                    last_part_of_mth = (days/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth']
+                    
+                    df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth
+                print(month, pd.to_datetime('2024-12'))
+                if month == pd.to_datetime('2024-12').to_period(freq='M'):
+                    assert False, 'ab'
+                    
+                idx += 1
+                
+                
+                
+        
+        else: # no change/disposal case    
             df_unpivot['Month'] = (
                 df[['Lease Start (PFY)', 'Lease End (PFY)']]
                 .apply(lambda x: pd.date_range(x[0], x[1], freq = 'M'), 
@@ -215,10 +272,55 @@ class OneContract:
                 )
             
             df_unpivot = df_unpivot.reset_index()
+            df_unpivot['Lease Start Month (PFY)'] = df_unpivot['Lease Start (PFY)'].dt.to_period(freq = ' M') ##       
+            df_unpivot['Lease End Month (PFY)'] = df_unpivot['Lease End (PFY)'].dt.to_period(freq = ' M') ##
+            df_unpivot['test_lag'] = df_unpivot['Lease End Month (PFY)'].shift()
+            
             df_unpivot = df_unpivot.explode('Month')
             
             df_unpivot['Month'] = df_unpivot['Month'].dt.to_period(freq = ' M')
-                        
+            df_unpivot = df_unpivot.reset_index(drop=True)
+                
+            
+            ## To check if lease end date is a full month, if not, manually append the incomplete month as date_range does not include it in
+            last_date_of_lease = df_unpivot.iloc[-1]['Lease End (PFY)'] # assign the lease end date
+            if last_date_of_lease != self.last_day_month(last_date_of_lease): # if lease end date is not a full month
+                extend_last_month = pd.DataFrame(df_unpivot[-1:].values, columns = df_unpivot.columns) # create a new pandas DF for the last month by copying the previous month
+                last_date_of_lease = last_date_of_lease.to_period(freq='M')
+                extend_last_month['Month'] = last_date_of_lease # change the 'Month' column
+                df_unpivot = df_unpivot.append(extend_last_month) # merge/ append the new DF
+                df_unpivot = df_unpivot.reset_index(drop=True) #reset index
+            
+            
+            ## looping through every month to check if that month needs to be pro-rated (for start of contracts)
+            idx = 0 # reset index to 0 for calling of specific row during iteration
+            for date in df_unpivot['Lease Start (PFY)']: 
+                if date != self.first_day_month(date): # if contract start date is not the start of the month
+                    # indicate True in not_start column, check first if the month we want to pro-rate is correct before indication boolean (since contracts are duplicated for every month)
+                    if df_unpivot.at[idx, 'Lease Start Month (PFY)'] == df_unpivot.at[idx, 'Month']:
+                        df_unpivot.at[idx, 'not_start'] = True
+                    else:
+                      df_unpivot.at[idx, 'not_start'] = False  
+                
+                else:
+                    df_unpivot.at[idx, 'not_start'] = False
+                    
+                idx += 1
+            
+            
+            ## looping through every month to check if that month needs to be pro-rated (for end of contracts)
+            idx = 0 
+            for date in df_unpivot['Lease End (PFY)']:
+                if date != self.last_day_month(date):
+                    if df_unpivot.at[idx, 'test_lag'] == df_unpivot.at[idx, 'Month']:
+                        df_unpivot.at[idx, 'not_end'] = True
+                    else:
+                      df_unpivot.at[idx, 'not_end'] = False 
+                      
+                else:
+                    df_unpivot.at[idx, 'not_end'] = False
+                idx += 1
+            
             factors = 1
             
             df_unpivot['Fixed lease payment'] =  factors * df_unpivot['Rental/mth (PFY)']
@@ -265,7 +367,7 @@ class OneContract:
         if cond.all(): # remeasurement case 
             try:
                 branch_df = (branch_df.merge(df_unpivot_2, on = ['Month'],
-                             how = 'left'))
+                             how = 'left', validate = '1:1'))
                 branch_df['Contract'] = branch_df['Contract'].fillna(method='ffill')
             except Exception:
                 msg = 'ERROR'
