@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Dec 29 18:32:19 2021
+
+@author: AnikaLeeTH
+"""
 ### Import from dependencies
 from dependencies import *
 
@@ -321,10 +327,10 @@ class LeaseDataReader(ExcelHelper):
                      .agg(lambda x: x.any()).reset_index())
         if df_gb_contract['Validation Error Indicator'].any():
             check_lst = df_gb_contract.loc[
-                df_gb_contract['Validation Error Indicator'], 'Contract']
+                df_gb_contract['Validation Error Indicator'], 'Contract'].tolist()
             msg = (
                 'Sample input contains incomplete information, please furnish '
-                'the information for contract: {check_lst}.')
+                f'the information for contract: {check_lst}.')
             raise Exception(msg)
         
         self.df = df.copy()
@@ -414,8 +420,7 @@ class LeaseDataReader(ExcelHelper):
             ~(df[old_contract_term_col_lst].isna().all(axis=1) &
              df[new_contract_term_col_lst].notna().all(axis=1)),
             
-            ~(df[old_contract_term_col_lst].notna().all(axis=1) &
-            df[new_contract_term_col_lst].notna().all(axis=1)),
+            ~(df[new_contract_term_col_lst].notna().all(axis=1)),
             
             ]
         
@@ -478,17 +483,31 @@ class LeaseDataReader(ExcelHelper):
 
 
 #%% Tester
-if __name__ == "__main__":
+# if __name__ == "__main__":
     
     
-    #%%%% 
-    if 1:
-        # mocked cases
-        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\INPUT TEMPLATE.xlsx"
-        output_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\OUTPUT.xlsx"
-    if 0:
-        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\INPUT TEMPLATE.xlsx"
-        output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\OUTPUT.xlsx"
+#     #%%%% 
+#     if 1:
+#         # mocked cases
+#         input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\INPUT TEMPLATE.xlsx"
+#         output_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\OUTPUT.xlsx"
+#     if 0:
+#         input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\INPUT TEMPLATE.xlsx"
+#         output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\OUTPUT.xlsx"
     
-    lease_liability_writer = LeaseLiabilityWriter(input_fp, output_fp)
+#     lease_liability_writer = LeaseLiabilityWriter(input_fp, output_fp)
     
+#%% Tester
+# if __name__ == "__main__":
+    
+    # df = pd.read_parquet(r"D:\Documents\Lease Liability\sample input output\test_parquet.parquet")
+    contract = 'QCLE'
+    # fy_start = datetime.date(2021,1,1)
+    # fy_end = pd.to_datetime('2021-12-31 00:00:00')
+    # pfy_start = datetime.date(2020, 1, 1)
+    # output_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE - Copy.xlsx"
+    input_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE_real.xlsx"
+    
+    # self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
+    # self = LeaseDataReader(input_fp, sheet_name = 'Lease Data',)
+    # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)

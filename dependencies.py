@@ -483,7 +483,7 @@ class ExcelHelper:
                    condition, true_result, false_result, 
                    equal_sign = True, negative = False):
         """
-        Creates a string denoting a Excel IF formula for a condition
+        Creates a string denoting an Excel IF formula for a condition
         and 2 results for whether the condition is true or false.
         
         >>> if_formula('A1>2', 2, 3)
