@@ -243,12 +243,14 @@ class OneContract:
                     max_days_in_mth = calendar.monthrange(date.year, date.month)[1] #31
                     days_diff = max_days_in_mth - days + 1 #23
                     df_unpivot.at[idx, 'Fixed lease payment'] *= (days_diff/max_days_in_mth) 
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days_diff/max_days_in_mth)
                 ### Case 2: Only not_end True
                 elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == False:
                     date = df_unpivot.at[idx, 'Lease End'] #27
                     days = date.day
                     max_days_in_mth = calendar.monthrange(date.year, date.month)[1] #30
                     df_unpivot.at[idx, 'Fixed lease payment'] *= (days/max_days_in_mth)
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days/max_days_in_mth)
                 ### Case 3: Both not_start and not_end True
                 elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == True:
                     date = df_unpivot.at[idx, 'Lease Start'] #9
@@ -259,8 +261,12 @@ class OneContract:
                     first_part_of_mth = ((days-1)/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth']
                     last_part_of_mth = (days_diff/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth']
                     
+                    first_part_of_mth_PFY = ((days-1)/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth (PFY)']
+                    last_part_of_mth_PFY = (days_diff/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth (PFY)']
+                    
                     df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth     
-                    print(idx, days, days_diff, max_days_in_mth, first_part_of_mth, last_part_of_mth,  df_unpivot.at[idx - 1, 'Rental/mth'])
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] = first_part_of_mth_PFY + last_part_of_mth_PFY 
+                    
                 idx += 1
                 
         else: # no change/disposal case   
@@ -339,12 +345,14 @@ class OneContract:
                     max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
                     days_diff = max_days_in_mth - days + 1
                     df_unpivot.at[idx, 'Fixed lease payment'] *= (days_diff/max_days_in_mth)
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days_diff/max_days_in_mth)
                 ### Case 2: Only not_end True
                 elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == False:
                     date = df_unpivot.at[idx, 'Lease End (PFY)']
                     days = date.day
                     max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
                     df_unpivot.at[idx, 'Fixed lease payment'] *= (days/max_days_in_mth)
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days/max_days_in_mth)
                 ### Case 3: Both not_start and not_end True
                 elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == True:
                     date = df_unpivot.at[idx, 'Lease Start (PFY)']
@@ -355,7 +363,12 @@ class OneContract:
                     first_part_of_mth = (days_diff/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth']
                     last_part_of_mth = (days/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth']
                     
-                    df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth                    
+                    first_part_of_mth_PFY = (days_diff/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth (PFY)']
+                    last_part_of_mth_PFY = (days/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth (PFY)']
+                    
+                    df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth
+                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] = first_part_of_mth_PFY + last_part_of_mth_PFY
+                    
                 idx += 1
         
         self.df = df.copy()
