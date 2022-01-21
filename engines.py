@@ -42,9 +42,8 @@ class OneContract:
         """
         
         df = self.df_raw.copy()
-        cond = df['Type'].str.contains('Remeasurement')
         
-        if cond.all(): # if it's a remeasurement case
+        if self.type == 'Remeasurement':
             schedule_start = self.pfy_start
             
         else: # all other cases start from the start of current FY
@@ -109,10 +108,15 @@ class OneContract:
         # fill in branch_df with "Month" column
         if self.type=='Remeasurement':
             
-            # Month column in excel, returns a fixed period index
-            branch_df['Month'] = (
-                pd.period_range(self.schedule_start, self.schedule_end, freq = 'M')
-                )
+            if self.schedule_end < self.fy_start:
+                branch_df['Month'] = (
+                    pd.period_range(self.schedule_start, self.fy_end, freq = 'M')
+                    )
+            else:
+                # Month column in excel, returns a fixed period index
+                branch_df['Month'] = (
+                    pd.period_range(self.schedule_start, self.schedule_end, freq = 'M')
+                    )
 
         else:
             agg_dict = {
@@ -124,12 +128,19 @@ class OneContract:
             full_date_range_col_lst = ['contract_fy_start',
                                        'contract_fy_end',]
             
-            branch_df['Month'] = (
-                branch_df[full_date_range_col_lst]
-                .apply(lambda x: pd.period_range(x[0], x[1], freq = 'M'), 
-                       axis = 1)
-                )      
-           
+            if self.schedule_end < self.fy_start:
+                branch_df['Month'] = (
+                    branch_df[full_date_range_col_lst]
+                    .apply(lambda x: pd.period_range(x[0], self.fy_end, freq = 'M'), 
+                           axis = 1)
+                    )
+            else:
+                branch_df['Month'] = (
+                    branch_df[full_date_range_col_lst]
+                    .apply(lambda x: pd.period_range(x[0], x[1], freq = 'M'), 
+                           axis = 1)
+                    )
+                
             # explode() function is used to transform each element of a list-like to a row
             # replicating the index values
             branch_df = branch_df.explode('Month')
@@ -412,6 +423,7 @@ class OneContractSchedule(OneContract):
         new_num_months = new_branch_df_not_null[""].max()
         # new_num_months = new_branch_df[""].max()
         new_num_years = math.ceil(new_num_months/12)
+        # new_num_years = math.ceil(new_branch_df[""].max()/12)
         
         # get first row start
         first_row = 8
@@ -479,8 +491,7 @@ class OneContractSchedule(OneContract):
         self.write_old_period_formula()
         self.write_new_period_formula()
         
-        cond = self.df['Type'].isin(['Remeasurement','Disposal'])
-        if cond.all():
+        if self.type in ['Remeasurement','Disposal']:
             try:
                 self.get_disposal_row_idx(self.old_lease_payment_df)
             except Exception:
@@ -977,20 +988,19 @@ class OneContractSchedule(OneContract):
         sum_formula = XL_Fns.sum_formula
         xlref = XL_Fns.xlref
         
-        cond = self.df['Type'].str.contains('Remeasurement')
-        
         row_formulae = []
         for num in np.arange(num_rows):
             row_idx = first_row + num
             cells_df = self.new_cell_ref(row_idx)
             cells_df_filled = self.get_new_formulae(cells_df, row_idx)
-            if cond.all():
+            if self.type=='Remeasurement':
                 cells_df_filled = self.remeasurement_update_formulae(cells_df_filled,row_idx)
             
             row = cells_df_filled.loc[:, 'cell_value'].tolist()
             row_formulae.append(row)
             
         row_df = pd.DataFrame(row_formulae).reset_index(drop=True)
+        row_df = row_df.reindex(self.new_branch_df.index).copy()
         
         full_year_df = self.fill_full_year(row_df).copy()
         
@@ -1079,7 +1089,8 @@ class OneContractSchedule(OneContract):
     def __insert_rows__(self):
         
         ws = self.ws
-        num_years = self.new_num_years
+        # num_years = self.new_num_years
+        num_years = int(len(self.new_branch_df)/12)
         
         if num_years > 1:
             new_first_row = 20
@@ -1663,9 +1674,15 @@ class OneContractDisclosure(OneContractSchedule):
 
     # 4. Summary calculations at the bottom
         nfy_start = (self.fy_start + relativedelta(years=1)).strftime("%b-%y")
-        nfy_start_idx = schedule_df.query(f"A == '{nfy_start}'").index[0] + self.first_row
+        if len(schedule_df.query(f"A == '{nfy_start}'"))>0:
+            nfy_start_idx = schedule_df.query(f"A == '{nfy_start}'").index[0] + self.first_row
+        elif len(schedule_df.query(f"A == 'Total'"))>0:
+            nfy_start_idx = schedule_df.query(f"A == 'Total'").index[0] + self.first_row + 1
+        else:
+            nfy_start_idx = schedule_df.query(f"J == 'Total'").index[0] + self.first_row + 1
             
-        if date_dict['end_date'] <= date_dict['cfy_cls'] or cond_disposal.any():
+        if (date_dict['end_date'] <= date_dict['cfy_cls'] or 
+            self.type == 'Disposal'):
             dic['ll_curr'] = 0
             dic['ll_non_curr'] = 0
         else:
@@ -2306,28 +2323,53 @@ class AllDisclosure:
 #%% Tester
 if __name__ == "__main__":
     
-    import inputs
+    if 0:
+        import inputs
+        
+        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\INPUT\INPUT TEMPLATE.xlsx"
+        # output_fp = r"C:\Users\benjaminlye\Downloads\INPUT TEMPLATE - Copy.xlsx"
+        output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\OUTPUT\OUTPUT.xlsx"
+        
+        lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
+        lease_data_reader.__main__()
+        
+        df = lease_data_reader.df.copy()
+        contract = 'CADCAM'
+        # contract = 'QADM'
+        # contract = 'QCLE'
+        # contract = 'QTH'
+        pfy_start = datetime.date(2020, 1, 1)
+        fy_start = datetime.date(2021,1,1)
+        fy_end = pd.to_datetime('2021-12-31 00:00:00')
     
-    input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\INPUT\INPUT TEMPLATE.xlsx"
-    # output_fp = r"C:\Users\benjaminlye\Downloads\INPUT TEMPLATE - Copy.xlsx"
-    output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\OUTPUT\OUTPUT.xlsx"
+        # self = OneContract(df, contract, fy_start, fy_end, pfy_start)
+        # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
+        self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
+        # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
     
-    lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
-    lease_data_reader.__main__()
+#%% Tester
+    if 1:
     
-    df = lease_data_reader.df.copy()
-    # contract = 'CADCAM'
-    # contract = 'QADM'
-    # contract = 'QCLE'
-    contract = 'QTH'
-    pfy_start = datetime.date(2020, 1, 1)
-    fy_start = datetime.date(2021,1,1)
-    fy_end = pd.to_datetime('2021-12-31 00:00:00')
-
-    # self = OneContract(df, contract, fy_start, fy_end, pfy_start)
-    # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
-    self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
-    # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
-    
+        import inputs
+        
+        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
+        output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\OUTPUT.xlsx"
+        
+        lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
+        lease_data_reader.__main__()
+        
+        df = lease_data_reader.df.copy()
+        contract = 'QSN2'
+        pfy_start = datetime.date(2020, 1, 1)
+        fy_start = datetime.date(2021,1,1)
+        fy_end = pd.to_datetime('2021-12-31 00:00:00')
+        
+        print(contract)
+        
+        # self = OneContract(df, contract, fy_start, fy_end, pfy_start)
+        # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
+        self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
+        self.__main__()
+        # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
 
     
