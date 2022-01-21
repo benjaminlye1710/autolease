@@ -1,9 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Wed Dec 29 18:32:19 2021
-
-@author: AnikaLeeTH
-"""
 ### Import from dependencies
 from dependencies import *
 
@@ -379,11 +373,12 @@ class LeaseDataReader(ExcelHelper):
         # Check for unknown contract type
         cond = df['Type'].str.contains('Unknown')
         if cond.any():
-            check_lst = df.loc[cond, 'Contract'].unique().to_list()
+            check_lst = list(df.loc[cond, 'Contract'].unique())
             msg = (
                 'Input template contains unexpected type of contract. Please '
                 f'check {check_lst}.'
                 )
+            raise Exception(msg)
         
         return df
     
@@ -498,16 +493,9 @@ class LeaseDataReader(ExcelHelper):
 #     lease_liability_writer = LeaseLiabilityWriter(input_fp, output_fp)
     
 #%% Tester
-# if __name__ == "__main__":
+if __name__ == "__main__":
     
-    # df = pd.read_parquet(r"D:\Documents\Lease Liability\sample input output\test_parquet.parquet")
-    contract = 'QCLE'
-    # fy_start = datetime.date(2021,1,1)
-    # fy_end = pd.to_datetime('2021-12-31 00:00:00')
-    # pfy_start = datetime.date(2020, 1, 1)
-    # output_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE - Copy.xlsx"
-    input_fp = r"D:\Documents\Lease Liability\sample input output\INPUT TEMPLATE_real.xlsx"
-    
-    # self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
-    # self = LeaseDataReader(input_fp, sheet_name = 'Lease Data',)
-    # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
+    input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL.xlsx"
+    input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
+    self = LeaseDataReader(input_fp, sheet_name = 'Lease Data',)
+    self.__main__()
