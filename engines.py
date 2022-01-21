@@ -18,61 +18,30 @@ XL_Fns = Excel_Misc_Fns
 class OneContract:
     
     def __init__(self, df, contract, fy_start, fy_end, pfy_start):
-        self.df = df[df['Contract'] == contract]
+        
+        self.df_raw = df[df['Contract'] == contract].copy()
         self.contract = contract
-        self.type = assert_one_and_get(self.df['Type'].unique())
+        self.type = assert_one_and_get(self.df_raw['Type'].unique())
+        self.country = assert_one_and_get(self.df_raw['Country'].unique())
         self.fy_start = fy_start
         self.fy_end = fy_end
         self.pfy_start = pfy_start
-        # self.fp = output_fp
         
-        # wb = openpyxl.load_workbook(output_fp)
-        # self.wb = wb
-    
-        # run methods
-        # self.fill_empty_rows()
-        # self.data_validation()
-        # self.update_contract_dates()
-        
+
+        # run methods        
         self.get_schedule_start()
         self.get_schedule_end()
         self.prepare_branch_df_month()
         self.prepare_old_branch_df()
         self.prepare_new_branch_df()
-        
-    # def get_old_interest_rate(self):
-        
-    #     df = self.df.copy()
-        
-    #     old_interest_dict = {}
-    #     dict_df = df.to_dict('records')
-    #     for x in range(len(dict_df)):
-    #         if (dict_df[x]['Borrowing Rate (PFY)'] not in old_interest_dict.values()):
-    #             old_interest_dict[dict_df[x]['Lease Start (PFY)']] = \
-    #                 dict_df[x]['Borrowing Rate (PFY)']
-        
-    #     self.old_interest_dict = old_interest_dict
-        
-    # def get_new_interest_rate(self):
-        
-    #     df = self.df.copy()
-        
-    #     new_interest_dict = {}
-    #     dict_df = df.to_dict('records')
-    #     for x in range(len(dict_df)):
-    #         if (dict_df[x]['Borrowing Rate'] not in new_interest_dict.values()):
-    #             new_interest_dict[dict_df[x]['Lease Start']] = \
-    #                 dict_df[x]['Borrowing Rate']
-        
-    #     self.new_interest_dict = new_interest_dict
-    
+            
     def get_schedule_start(self):
         
         """
         Gets starting date of schedule df
         """
         
-        df = self.df.copy()
+        df = self.df_raw.copy()
         cond = df['Type'].str.contains('Remeasurement')
         
         if cond.all(): # if it's a remeasurement case
@@ -92,6 +61,19 @@ class OneContract:
             
         self.schedule_start = schedule_start
         
+        
+    def get_schedule_end(self):
+        """
+        Get ending date of schedule df 
+        """
+        
+        df = self.df_raw.copy()
+        
+        [schedule_end] = df['contract_fy_end'].dt.date.unique()
+        
+        self.schedule_end = schedule_end
+        
+    
     def first_day_month(self, date):
         '''
         to compare if the given date is the first date of the month
@@ -116,32 +98,21 @@ class OneContract:
         return last_day
         
         
-    def get_schedule_end(self):
-        """
-        Get ending date of schedule df 
-        """
-        
-        df = self.df.copy()
-        
-        schedule_end = pd.to_datetime(df['contract_fy_end'].unique()[0])
-        
-        self.schedule_end = schedule_end
-        
-    
     def prepare_branch_df_month(self):
         
-        df = self.df.copy()
+        df = self.df_raw.copy()
         cond = df['Type'].str.contains('Remeasurement')
         cond_add = df['Type'].str.contains('Addition')
         
         branch_df = pd.DataFrame()
         
         # fill in branch_df with "Month" column
-        if cond.all(): # if its a remeasurement case
+        if self.type=='Remeasurement':
             
             # Month column in excel, returns a fixed period index
             branch_df['Month'] = (
-                pd.period_range(self.schedule_start, self.schedule_end, freq = 'M'))
+                pd.period_range(self.schedule_start, self.schedule_end, freq = 'M')
+                )
 
         else:
             agg_dict = {
@@ -159,218 +130,149 @@ class OneContract:
                        axis = 1)
                 )      
            
-            
             # explode() function is used to transform each element of a list-like to a row
             # replicating the index values
             branch_df = branch_df.explode('Month')
         
         df_unpivot = df.copy()
+        
+        # Calculate Fixed Lease Payment without pro-rating yet
+        df_unpivot['Fixed lease payment'] = df_unpivot['Rental/mth'].copy()
+        df_unpivot['Fixed lease payment (PFY)'] = df_unpivot['Rental/mth (PFY)'].copy()
 
         # remeasurement/addition case
-        if cond.all() or cond_add.all():  
-             
-            ## Add Month column with full range of months based on Lease Start and Lease End columns
-            df_unpivot['Month'] = (
-                df[['Lease Start', 'Lease End']]
-                .apply(lambda x: pd.date_range(x[0], x[1], freq = 'M'), 
-                        axis = 1)
-                )
+        if self.type in ['Remeasurement', 'Addition']:
             
-            ## Copy Lease Start and Lease End Months for each contract before exploding all the months
-            df_unpivot = df_unpivot.reset_index(drop=True)
-            df_unpivot['Lease Start Month'] = df_unpivot['Lease Start'].dt.to_period(freq = ' M') ##       
-            df_unpivot['Lease End Month'] = df_unpivot['Lease End'].dt.to_period(freq = ' M') ##
-            # df_unpivot['lag'] = df_unpivot['Lease End Month'].shift(1)
-                     
-            df_unpivot = df_unpivot.explode('Month') # Populating all the months into individual rows
-            
-            df_unpivot['Month'] = df_unpivot['Month'].dt.to_period(freq = ' M') # Change Month column dtype to period
-            df_unpivot = df_unpivot.reset_index(drop=True) # reset index
-
-
-            ## To check if lease end date is a full month, if not, manually append the incomplete month as date_range does not include it in
-            last_date_of_lease = df_unpivot.iloc[-1]['Lease End'] # assign the lease end date
-            if last_date_of_lease != self.last_day_month(last_date_of_lease): # if lease end date is not a full month
-                extend_last_month = pd.DataFrame(df_unpivot[-1:].values, columns = df_unpivot.columns) # create a new pandas DF for the last month by copying the previous month
-                last_date_of_lease = last_date_of_lease.to_period(freq='M')
-                extend_last_month['Month'] = last_date_of_lease # change the 'Month' column
-                df_unpivot = df_unpivot.append(extend_last_month) # merge/ append the new DF
-                df_unpivot = df_unpivot.reset_index(drop=True) #reset index
-                
-            df_unpivot['lag'] = df_unpivot['Lease End Month'].shift(1)
-            
-            ## looping through every month to check if that month needs to be pro-rated (for start of contracts)
-            idx = 0 # reset index to 0 for calling of specific row during iteration
-            for date in df_unpivot['Lease Start']: 
-                if date != self.first_day_month(date): # if contract start date is not the start of the month
-                    # indicate True in not_start column, check first if the month we want to pro-rate is correct before indication boolean (since contracts are duplicated for every month)
-                    if df_unpivot.at[idx, 'Lease Start Month'] == df_unpivot.at[idx, 'Month']:
-                        df_unpivot.at[idx, 'not_start'] = True
-                    else:
-                      df_unpivot.at[idx, 'not_start'] = False  
-                
-                else:
-                    df_unpivot.at[idx, 'not_start'] = False
-                    
-                idx += 1
-            
-            ## looping through every month to check if that month needs to be pro-rated (for end of contracts)
-            idx = 0 
-            for date in df_unpivot['Lease End']:
-                if date != self.last_day_month(date):
-                    if df_unpivot.at[idx, 'lag'] == df_unpivot.at[idx, 'Month']:
-                        df_unpivot.at[idx, 'not_end'] = True
-                    else:
-                      df_unpivot.at[idx, 'not_end'] = False 
-                      
-                else:
-                    df_unpivot.at[idx, 'not_end'] = False
-                idx += 1
-                        
-            factors = 1
-            
-            # Calculate Fixed Lease Payment without pro-rating yet
-            df_unpivot['Fixed lease payment'] =  factors * df_unpivot['Rental/mth']
-            df_unpivot['Fixed lease payment (PFY)'] = factors * df_unpivot['Rental/mth (PFY)']
-            
-            ## Pro-rating formula           
-            idx = 0
-            for month in df_unpivot['Month']:
-            ### Case 1: Only not_start True  
-                if df_unpivot.at[idx, 'not_start'] == True and df_unpivot.at[idx, 'not_end'] == False:
-                    date = df_unpivot.at[idx, 'Lease Start']
-                    days = date.day #9
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1] #31
-                    days_diff = max_days_in_mth - days + 1 #23
-                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days_diff/max_days_in_mth) 
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days_diff/max_days_in_mth)
-                ### Case 2: Only not_end True
-                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == False:
-                    date = df_unpivot.at[idx, 'Lease End'] #27
-                    days = date.day
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1] #30
-                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days/max_days_in_mth)
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days/max_days_in_mth)
-                ### Case 3: Both not_start and not_end True
-                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == True:
-                    date = df_unpivot.at[idx, 'Lease Start'] #9
-                    days = date.day
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
-                    days_diff = max_days_in_mth - days + 1
-                    
-                    first_part_of_mth = ((days-1)/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth']
-                    last_part_of_mth = (days_diff/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth']
-                    
-                    first_part_of_mth_PFY = ((days-1)/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth (PFY)']
-                    last_part_of_mth_PFY = (days_diff/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth (PFY)']
-                    
-                    df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth     
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] = first_part_of_mth_PFY + last_part_of_mth_PFY 
-                    
-                idx += 1
-                
-        else: # no change/disposal case   
-            
-            ## Add Month column with full range of months based on Lease Start and Lease End columns
-            df_unpivot['Month'] = (
-                df[['Lease Start (PFY)', 'Lease End (PFY)']]
-                .apply(lambda x: pd.date_range(x[0], x[1], freq = 'M'), 
-                        axis = 1)
-                )
-            
-            df_unpivot = df_unpivot.reset_index(drop = True)
-            df_unpivot['Lease Start Month (PFY)'] = df_unpivot['Lease Start (PFY)'].dt.to_period(freq = ' M') ##       
-            df_unpivot['Lease End Month (PFY)'] = df_unpivot['Lease End (PFY)'].dt.to_period(freq = ' M') ##
-            df_unpivot['lag'] = df_unpivot['Lease End Month (PFY)'].shift()
-            
-            df_unpivot = df_unpivot.explode('Month')
-            
-            df_unpivot['Month'] = df_unpivot['Month'].dt.to_period(freq = ' M')
-            df_unpivot = df_unpivot.reset_index(drop=True)
-                
-            
-            ## To check if lease end date is a full month, if not, manually append the incomplete month as date_range does not include it in
-            last_date_of_lease = df_unpivot.iloc[-1]['Lease End (PFY)'] # assign the lease end date
-            if last_date_of_lease != self.last_day_month(last_date_of_lease): # if lease end date is not a full month
-                extend_last_month = pd.DataFrame(df_unpivot[-1:].values, columns = df_unpivot.columns) # create a new pandas DF for the last month by copying the previous month
-                last_date_of_lease = last_date_of_lease.to_period(freq='M')
-                extend_last_month['Month'] = last_date_of_lease # change the 'Month' column
-                df_unpivot = df_unpivot.append(extend_last_month) # merge/ append the new DF
-                df_unpivot = df_unpivot.reset_index(drop=True) #reset index
-            
-            df_unpivot['lag'] = df_unpivot['Lease End Month (PFY)'].shift(1)
-            
-            ## looping through every month to check if that month needs to be pro-rated (for start of contracts)
-            idx = 0 # reset index to 0 for calling of specific row during iteration
-            for date in df_unpivot['Lease Start (PFY)']: 
-                if date != self.first_day_month(date): # if contract start date is not the start of the month
-                    # indicate True in not_start column, check first if the month we want to pro-rate is correct before indication boolean (since contracts are duplicated for every month)
-                    if df_unpivot.at[idx, 'Lease Start Month (PFY)'] == df_unpivot.at[idx, 'Month']:
-                        df_unpivot.at[idx, 'not_start'] = True
-                    else:
-                      df_unpivot.at[idx, 'not_start'] = False  
-                
-                else:
-                    df_unpivot.at[idx, 'not_start'] = False
-                    
-                idx += 1
-            
-            
-            ## looping through every month to check if that month needs to be pro-rated (for end of contracts)
-            idx = 0 
-            for date in df_unpivot['Lease End (PFY)']:
-                if date != self.last_day_month(date):
-                    if df_unpivot.at[idx, 'lag'] == df_unpivot.at[idx, 'Month']:
-                        df_unpivot.at[idx, 'not_end'] = True
-                    else:
-                      df_unpivot.at[idx, 'not_end'] = False 
-                      
-                else:
-                    df_unpivot.at[idx, 'not_end'] = False
-                idx += 1
-            
-            factors = 1
-            
-            # Calculate Fixed Lease Payment without pro-rating yet
-            df_unpivot['Fixed lease payment'] =  factors * df_unpivot['Rental/mth (PFY)']
-            df_unpivot['Fixed lease payment (PFY)'] = factors * df_unpivot['Rental/mth (PFY)']
-            
-            ## Pro-rating formula  
-            idx = 0
-            for month in df_unpivot['Month']:
-            ### Case 1: Only not_start True  
-                if df_unpivot.at[idx, 'not_start'] == True and df_unpivot.at[idx, 'not_end'] == False:
-                    date = df_unpivot.at[idx, 'Lease Start (PFY)']
-                    days = date.day
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
-                    days_diff = max_days_in_mth - days + 1
-                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days_diff/max_days_in_mth)
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days_diff/max_days_in_mth)
-                ### Case 2: Only not_end True
-                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == False:
-                    date = df_unpivot.at[idx, 'Lease End (PFY)']
-                    days = date.day
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
-                    df_unpivot.at[idx, 'Fixed lease payment'] *= (days/max_days_in_mth)
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] *= (days/max_days_in_mth)
-                ### Case 3: Both not_start and not_end True
-                elif df_unpivot.at[idx, 'not_end'] == True and df_unpivot.at[idx, 'not_start'] == True:
-                    date = df_unpivot.at[idx, 'Lease Start (PFY)']
-                    days = date.day - 1
-                    max_days_in_mth = calendar.monthrange(date.year, date.month)[1]
-                    days_diff = max_days_in_mth - days 
-                    
-                    first_part_of_mth = (days_diff/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth']
-                    last_part_of_mth = (days/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth']
-                    
-                    first_part_of_mth_PFY = (days_diff/max_days_in_mth) * df_unpivot.at[idx - 1, 'Rental/mth (PFY)']
-                    last_part_of_mth_PFY = (days/max_days_in_mth) * df_unpivot.at[idx, 'Rental/mth (PFY)']
-                    
-                    df_unpivot.at[idx, 'Fixed lease payment'] = first_part_of_mth + last_part_of_mth
-                    df_unpivot.at[idx, 'Fixed lease payment (PFY)'] = first_part_of_mth_PFY + last_part_of_mth_PFY
-                    
-                idx += 1
+            start = 'Lease Start'
+            end = 'Lease End'
+            start_mth = 'Lease Start Month'
+            end_mth = 'Lease End Month'
+            start_day = 'Start Day'
+            end_day = 'End Day'
+            rental = 'Fixed lease payment'
+            rental_l1 = 'Fixed lease payment l1'
+            rental_2 = 'Fixed lease payment (PFY)'
+            rental_2_l1 = 'Fixed lease payment (PFY) l1'
         
+        else:
+            
+            start = 'Lease Start (PFY)'
+            end = 'Lease End (PFY)'
+            start_mth = 'Lease Start Month (PFY)'
+            end_mth = 'Lease End Month (PFY)'
+            start_day = 'Start Day (PFY)'
+            end_day = 'End Day (PFY)'
+            rental = 'Fixed lease payment (PFY)'
+            rental_l1 = 'Fixed lease payment (PFY) l1'
+            rental_2 = 'Fixed lease payment'
+            rental_2_l1 = 'Fixed lease payment l1'
+
+            
+        ## Copy Lease Start and Lease End Months for each contract before exploding all the months
+        df_unpivot = df_unpivot.reset_index(drop=True)
+        df_unpivot[start_mth] = df_unpivot[start].dt.to_period(freq = ' M') ##
+        df_unpivot[end_mth] = df_unpivot[end].dt.to_period(freq = ' M') ##
+        
+        ## Add Month column with full range of months based on Lease Start and Lease End columns
+        # df_unpivot['Month'] = (
+        #     df_unpivot[[start, end]]
+        #     .apply(lambda x: pd.date_range(x[0], x[1], freq = 'M'), 
+        #             axis = 1)
+        #     )
+        
+        df_unpivot['Month'] = (
+            df_unpivot[[start_mth, end_mth]]
+            .apply(lambda x: pd.period_range(x[0], x[1], freq = 'M'), 
+                    axis = 1)
+            )
+        
+        df_unpivot = df_unpivot.explode('Month') # Populating all the months into individual rows
+        
+        ## remove duplicated rows"
+        df_unpivot['lead'] = df_unpivot['Month'].shift(-1)
+
+        duplicated_rows = df_unpivot['Month'] == df_unpivot['lead']
+        df_unpivot = df_unpivot.loc[~duplicated_rows, :].copy()
+        
+        ## adjust prorate days for factor calculation
+        df_unpivot[start_day] = df_unpivot[start].dt.day
+        df_unpivot[end_day] = df_unpivot[end].dt.day
+
+        df_unpivot['Total Days in Month'] = df_unpivot['Month'].apply(
+            lambda x: calendar.monthrange(x.year, x.month)[1]
+            )
+        df_unpivot['Ending Day in Month'] = df_unpivot['Total Days in Month']
+        
+        df_unpivot['lag'] = df_unpivot[end_mth].shift(1)
+        df_unpivot[rental_l1] = df_unpivot[rental].shift()
+        df_unpivot[rental_2_l1] = df_unpivot[rental_2].shift()
+
+        if self.type in ['No Change', 'Disposal']:
+            df_unpivot[rental_2] = df_unpivot[rental] 
+            df_unpivot[rental_2_l1] = df_unpivot[rental_l1]
+        
+        ## if contract does not start on the first date
+        not_first_day = (df_unpivot[start_day] != 1).any()
+        if not_first_day:
+            df_unpivot[rental_l1].iat[0] = 0
+            df_unpivot[rental_2_l1].iat[0] = 0
+        
+        ## if contract end date is not 1 day before start date
+        lease_mth_end_day = (
+            df_unpivot[end].apply(lambda x: calendar.monthrange(x.year, x.month)[1])
+            )
+        not_last_day = (df_unpivot[end_day] != lease_mth_end_day).any()
+        consecutive_start_and_end = ((df_unpivot[start_day]-1) == df_unpivot[end_day]).all()
+        
+        if not_last_day & consecutive_start_and_end:
+            df_unpivot[rental].iat[-1] = 0
+            df_unpivot[rental_2].iat[-1] = 0
+            
+        elif (not_last_day & (df_unpivot[start_day] < df_unpivot[end_day]).all()):
+            df_unpivot[end_day] = df_unpivot[start_day]-1
+            df_unpivot['Ending Day in Month'].iat[-1] = df_unpivot[end].dt.day.iat[-1]
+        
+        elif ~not_last_day:
+            df_unpivot[end_day] = 0
+            
+        else:
+            raise Exception
+        
+        df_unpivot = df_unpivot.reset_index(drop=True) # reset index
+        
+        # Assuming rental is calculated from 16th this month till 15th next month
+        # Assuming rental per month increase from 
+        # $1000 (16 Jan - 15 Feb) to $1200 (16 Feb - 15 Mar)
+        # this formula will calculate the rental in Feb
+        # 1st part of rental 1 Feb 2021 - 15 Feb 2021 using previous month's rental $1000
+        df_unpivot['factor_l1'] = df_unpivot[end_day] / df_unpivot['Total Days in Month']
+        # 2nd part of rental 16 Feb 2021 - 28 Feb 2021 using current month's rental $1200
+        df_unpivot['factor'] = (
+            (df_unpivot['Ending Day in Month'] - df_unpivot[start_day] + 1) /
+            df_unpivot['Total Days in Month']
+            )
+        
+        df_unpivot[rental] = (
+            df_unpivot[rental_l1].fillna(0) * df_unpivot['factor_l1'] +
+            df_unpivot[rental] * df_unpivot['factor']
+            )
+                
+        df_unpivot[rental_2] = (
+            df_unpivot[rental_2_l1].fillna(0) * df_unpivot['factor_l1'] +
+            df_unpivot[rental_2] * df_unpivot['factor']
+            )
+            
+        # test = df_unpivot[
+        #     ['Month', start, start_mth, 
+        #      # 'not_start', 
+        #       end, end_mth, 'lag', 
+        #       # 'not_end',
+        #       start_day, end_day, 'Ending Day in Month', 'Total Days in Month',
+        #       'factor', 'factor_l1', 
+        #       rental, rental_l1, rental_2, rental_2_l1,
+        #       ]
+        #     ].copy()
+                
         self.df = df.copy()
         self.branch_df = branch_df.copy()
         self.df_unpivot = df_unpivot.copy()
@@ -383,12 +285,16 @@ class OneContract:
         
         key_id = ['Contract', 'Month','Fixed lease payment (PFY)']
         #agg_dict = {'Fixed lease payment': 'min'}
-        df_unpivot_2 = df_unpivot[key_id]
+        df_unpivot_2 = df_unpivot.loc[:, key_id].copy()
         
         #df_unpivot['RowID'] = range(len(df_unpivot))
         
-        cond = df['Type'].str.contains('Remeasurement')
-        if cond.all(): # remeasurement case 
+        branch_df['Month'] = branch_df['Month'].dt.strftime('%b-%y')
+        df_unpivot_2['Month'] =  (
+            pd.to_datetime(df_unpivot_2['Month'].astype(str))
+            .dt.strftime('%b-%y').copy())
+
+        if self.type=='Remeasurement':
             try:
                 branch_df = (branch_df.merge(df_unpivot_2, on = ['Month'],
                              how = 'left', validate = '1:1'))
@@ -403,22 +309,13 @@ class OneContract:
             except Exception:
                 msg = 'ERROR'
                 raise Exception(msg)
-            
+        
         branch_df[''] = (branch_df.groupby('Contract')['Contract']
                          .cumcount() + 1)
         
         col_filter_lst = ['Contract','Month','','Fixed lease payment (PFY)']
         branch_df = branch_df[col_filter_lst].copy()
         
-        try:
-            branch_df['Month'] = (
-                branch_df['Month'].dt.strftime('%b-%y'))
-                
-        except AttributeError:
-            branch_df['Month'] = (
-                pd.to_datetime(branch_df['Month'].astype(str))
-                .dt.strftime('%b-%y'))
-            
         num_months_df = (branch_df.groupby('Contract').agg(
             **{'months_from_fystart':('Month','count')}).rename(
                 columns = {'Contract':'branch'}))
@@ -437,11 +334,14 @@ class OneContract:
         df_unpivot = self.df_unpivot.copy()
         
         key_id = ['Contract', 'Month','Fixed lease payment']
-        df_unpivot_2 = df_unpivot[key_id]
+        df_unpivot_2 = df_unpivot.loc[:, key_id].copy()
         
+        branch_df['Month'] = branch_df['Month'].dt.strftime('%b-%y')
+        df_unpivot_2['Month'] = (
+            pd.to_datetime(df_unpivot_2['Month'].astype(str)).dt.strftime('%b-%y')
+            )
         
-        cond = df['Type'].str.contains('Remeasurement')
-        if cond.all(): # remeasurement case 
+        if self.type=='Remeasurement':
             try:
                 branch_df = (branch_df.merge(df_unpivot_2, on = ['Month'],
                              how = 'left', validate = '1:1'))
@@ -462,16 +362,7 @@ class OneContract:
         
         col_filter_lst = ['Contract','Month','','Fixed lease payment']
         branch_df = branch_df[col_filter_lst].copy()
-        
-        try:
-            branch_df['Month'] = (
-                branch_df['Month'].dt.strftime('%b-%y'))
-                
-        except AttributeError:
-            branch_df['Month'] = (
-                pd.to_datetime(branch_df['Month'].astype(str))
-                .dt.strftime('%b-%y'))
-            
+                    
         num_months_df = (branch_df.groupby('Contract').agg(
             **{'months_from_fystart':('Month','count')}).rename(
                 columns = {'Contract':'branch'}))
@@ -493,19 +384,23 @@ class OneContractSchedule(OneContract):
         wb = openpyxl.load_workbook(output_fp)
         ws = wb.copy_worksheet(wb['branch_template'])
         
-        old_branch_df = self.old_branch_df
-        new_branch_df = self.new_branch_df
+        old_branch_df = self.old_branch_df.copy()
+        new_branch_df = self.new_branch_df.copy()
         
-        old_branch_df_not_null = old_branch_df[old_branch_df['Fixed lease payment (PFY)'].notnull()]
-        new_branch_df_not_null = new_branch_df[new_branch_df['Fixed lease payment'].notnull()]
+        non_empty_row = old_branch_df['Fixed lease payment (PFY)'].notnull()
+        old_branch_df_not_null = old_branch_df.loc[non_empty_row, :].copy()
+        
+        non_empty_row = new_branch_df['Fixed lease payment'].notnull()
+        new_branch_df_not_null = new_branch_df.loc[non_empty_row, :].copy()
         
         # get first mth & year thats not NA
         try:
-            old_first_m_y = old_branch_df_not_null['Month'].iat[0]
+            old_first_m_y = old_branch_df_not_null.iat[0, 1]
         except Exception:
-            old_first_m_y = old_branch_df['Month'].iat[0]
-        new_first_m_y = new_branch_df_not_null['Month'].iat[0]
-        
+            old_first_m_y = old_branch_df.iat[0, 1]
+            
+        new_first_m_y = new_branch_df_not_null.iat[0, 1]
+
         # get num of months & years
         try:
             old_num_months = int(old_branch_df_not_null[""].max())
@@ -513,20 +408,20 @@ class OneContractSchedule(OneContract):
         except Exception:
             old_num_months = 0
             old_num_years = 0
-        
-        # new_num_months = new_branch_df_not_null[""].max()
-        new_num_months = new_branch_df[""].max()
+
+        new_num_months = new_branch_df_not_null[""].max()
+        # new_num_months = new_branch_df[""].max()
         new_num_years = math.ceil(new_num_months/12)
         
         # get first row start
         first_row = 8
-        
-        old_lease_start_row = \
-            old_branch_df[old_branch_df['Month']==old_first_m_y].index[0]
+
+        first_month = old_branch_df['Month']==old_first_m_y
+        old_lease_start_row = old_branch_df.loc[first_month].index[0]
         old_lease_start_row_idx = old_lease_start_row + first_row
-        
-        new_lease_start_row = \
-            new_branch_df[new_branch_df['Month']==new_first_m_y].index[0]
+                
+        first_month = new_branch_df['Month']==new_first_m_y
+        new_lease_start_row = new_branch_df.loc[first_month].index[0]
         new_lease_start_row_idx = new_lease_start_row + first_row
         
         # save
@@ -540,25 +435,58 @@ class OneContractSchedule(OneContract):
         self.old_num_years = old_num_years
         self.old_lease_start_row = old_lease_start_row
         self.old_lease_start_row_idx = old_lease_start_row_idx
-        self.old_final_row_idx, self.old_final_row_idx_full = \
-            self.__calculate_final_row_indices(old_num_months,old_num_years)
-        
+        self.old_final_row_idx = str(self.first_row + old_num_months - 1)
+        self.old_final_row_idx_full = (
+            str(self.first_row + (old_num_years*12)-1)
+            )
+            # str(len(self.old_branch_df))
+            
         self.new_branch_df_not_null = new_branch_df_not_null
         self.new_first_m_y = new_first_m_y
         self.new_num_months = new_num_months
         self.new_num_years = new_num_years
         self.new_lease_start_row = new_lease_start_row
         self.new_lease_start_row_idx = new_lease_start_row_idx
-        self.new_final_row_idx, self.new_final_row_idx_full = \
-            self.__calculate_final_row_indices(new_num_months, new_num_years)
-
+        self.new_final_row_idx = str(self.first_row + new_num_months - 1)
+        self.new_final_row_idx_full = (
+            str(self.first_row + (new_num_years*12)-1)
+            )
+            # str(len(self.new_branch_df))
+            
         
     def __main__(self):
         
-        self.write_one_contract_schedule()
+        '''
+        To call all the other functions 
+        '''
+
+        old_schedule_df = self.get_old_schedule_df().copy()
+        new_schedule_df = self.get_new_schedule_df().copy()
         
-        # self.wb.save(self.fp)
-        # self.wb.close()
+        self.schedule_df = pd.concat([old_schedule_df,new_schedule_df],
+                                axis=1)
+                
+        # Converting column names to match excel's columns        
+        cols = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
+        self.schedule_df.columns = cols[:len(self.schedule_df.columns)]
+
+        self.write_meta_data()
+        self.__insert_rows__()
+        self.write_old_interest_rate()
+        self.write_new_interest_rate()
+        self.write_total_lease_period()
+        self.write_schedule_df()
+        self.write_old_period_formula()
+        self.write_new_period_formula()
+        
+        cond = self.df['Type'].isin(['Remeasurement','Disposal'])
+        if cond.all():
+            try:
+                self.get_disposal_row_idx(self.old_lease_payment_df)
+            except Exception:
+                pass
+            self.conditional_format()
+            
         
     def __calculate_final_row_indices(self,num_months,num_years):
         
@@ -1064,7 +992,7 @@ class OneContractSchedule(OneContract):
             
         row_df = pd.DataFrame(row_formulae).reset_index(drop=True)
         
-        full_year_df = self.fill_full_year(row_df)
+        full_year_df = self.fill_full_year(row_df).copy()
         
         # Get total row formulae
         cols_alpha = {'tfp_total': 16, 'NPV_total': 18, 'll_payment_total': 20, 
@@ -1164,13 +1092,14 @@ class OneContractSchedule(OneContract):
         # save
         self.ws = ws
         
+        
     def get_old_schedule_df(self):
         """
         Generate old schedule df from merging df summary & df formulae
         """
         
         old_lease_payment_df = self.get_old_df_summary().drop(columns = ['Contract']).copy()
-        old_main_table_formulae_df = self.get_old_formulae_df().loc[:,1:].copy()
+        old_main_table_formulae_df = self.get_old_formulae_df().iloc[:,1:].copy()
         
         old_schedule_df = pd.concat([old_lease_payment_df,old_main_table_formulae_df],
                                     axis=1)
@@ -1185,7 +1114,7 @@ class OneContractSchedule(OneContract):
         """
         
         new_lease_payment_df = self.get_new_df_summary().drop(columns = ['Contract']).copy()
-        new_main_table_formulae_df = self.get_new_formulae_df().loc[:,1:].copy()
+        new_main_table_formulae_df = self.get_new_formulae_df().iloc[:,1:].copy()
         
         new_schedule_df = pd.concat([new_lease_payment_df,new_main_table_formulae_df],
                                     axis=1)
@@ -1194,44 +1123,15 @@ class OneContractSchedule(OneContract):
         
         return new_schedule_df
     
-    def get_one_contract_schedule_df(self):
-        """
-        Generate 1 df to write on excel from merging old & new df
-        """
         
-        old_schedule_df = self.get_old_schedule_df().copy()
-        new_schedule_df = self.get_new_schedule_df().copy()
-        
-        schedule_df = pd.concat([old_schedule_df,new_schedule_df],
-                                axis=1)
-        
-        self.schedule_df = schedule_df
-        
-        return schedule_df
-    
-    def convert_col_names(self):
-        
-        """
-        Converting column names to match excel's columns
-        """
-        
-        schedule_df = self.get_one_contract_schedule_df().copy()
-        
-        cols = list('ABCDEFGHIJKLMNOPQRSTUVWXYZ')
-        schedule_df.columns = cols[:len(schedule_df.columns)]
-        
-        self.schedule_df = schedule_df
-        
+                
     def write_meta_data(self):
         
         ws = self.ws
         df = self.df
         
-        
         # branch name
-        unique_branch = list(df['Contract'].unique())
-        branch_name = assert_one_and_get(
-            unique_branch)
+        branch_name =self.contract
         
         # change sheet name to branch
         ws.title = branch_name[:30]
@@ -1240,9 +1140,7 @@ class OneContractSchedule(OneContract):
         ws['A1'].value = branch_name
         
         # write the country 
-        unique_countries = list(df['Country'].unique())
-        country = assert_one_and_get(
-            unique_countries)
+        country = self.country
         ws['A2'].value = country 
         
         # save ws
@@ -1250,8 +1148,13 @@ class OneContractSchedule(OneContract):
         
     def write_old_interest_rate(self):
         
-        old_int_rate = assert_one_and_get(
-            self.df['Borrowing Rate (PFY)'].unique())
+        old_int_rate = self.df['Borrowing Rate (PFY)'].dropna().unique()
+        
+        if len(old_int_rate)==0:
+            old_int_rate = np.nan
+        else:
+            old_int_rate = assert_one_and_get(old_int_rate)
+            
         self.ws['S1'].value = old_int_rate
         
         self.old_int_rate = old_int_rate
@@ -1260,49 +1163,13 @@ class OneContractSchedule(OneContract):
         
         df = self.df.copy()
         
-        cond = df['Type'].isin(['Remeasurement','Addition'])
-        if cond.all():
-            new_int_rate = df.loc[cond, 'Borrowing Rate'].unique()[-1]
+        if self.type in ['Remeasurement','Addition']:
+            new_int_rate = df['Borrowing Rate'].dropna().unique()[-1]
         else: 
             new_int_rate = self.old_int_rate
             
         self.ws['S2'].value = new_int_rate
     
-    # def write_old_lease_payment(self):
-            
-    #     first_m_y = self.old_first_m_y
-    #     num_months = self.old_num_months
-    #     first_row = self.first_row
-    #     ws = self.ws
-        
-    #     df_summed = self.get_old_df_summary()
-    #     df_summed = df_summed.drop(columns = ['Contract'])
-        
-    #     ws['M2'].value = int(self.old_final_row_idx) - int(self.old_lease_start_row_idx) + 1
-        
-    #     # write to excel
-    #     Excel_Misc_Fns.df_to_worksheet(
-    #         df_summed, ws,
-    #         index=False, header=False,
-    #         startrow = self.first_row, startcol=1)
-        
-    # def write_new_lease_payment(self):
-        
-    #     first_m_y = self.new_first_m_y
-    #     num_months = self.new_num_months
-    #     first_row = self.first_row
-    #     ws = self.ws
-        
-    #     df_summed = self.get_new_df_summary()
-    #     df_summed = df_summed.drop(columns = ['Contract'])
-        
-    #     ws['N2'].value = int(self.new_final_row_idx) - int(self.new_lease_start_row_idx) + 1
-        
-    #     # write to excel
-    #     Excel_Misc_Fns.df_to_worksheet(
-    #         df_summed, ws,
-    #         index=False, header=False,
-    #         startrow = self.first_row, startcol=10)
     
     def write_old_period_formula(self):
         
@@ -1342,41 +1209,6 @@ class OneContractSchedule(OneContract):
             startrow = first_row, startcol = 11)
         
         
-    # def write_old_main_table_formulas(self):
-        
-    #     ws = self.ws
-    #     first_row = self.first_row
-        
-    #     formulae_df = (self.get_old_formulae_df()).loc[:,1:] # exclude period formula
-        
-    #     # write to excel
-    #     Excel_Misc_Fns.df_to_worksheet(
-    #         formulae_df, ws,
-    #         index = False, header = False,
-    #         startrow = first_row, startcol = 7)
-        
-    # def write_new_main_table_formulas(self):
-        
-    #     ws = self.ws
-    #     first_row = self.first_row
-    #     df = self.df
-        
-    #     formulae_df = (self.get_new_formulae_df()).loc[:,1:] # exclude period formula
-        
-    #     cond = df['Renew Contract?'].isin(['Y'])
-    #     if cond.all():
-    #         opening_rou = assert_one_and_get(df['Opening ROU (PFY)'].unique())
-    #         opening_ll = assert_one_and_get(df['Opening Lease Liability (PFY)'].unique())
-    #         formulae_df.loc[0,8] = ('={}'.format(opening_rou)) 
-    #         formulae_df.loc[0,4] = ('={}'.format(opening_ll)) 
-
-        
-    #     Excel_Misc_Fns.df_to_worksheet(
-    #         formulae_df, ws,
-    #         index = False, header = False,
-    #         startrow = first_row, startcol = 16)
-        
-        
     def conditional_format(self):
         
         ws = self.ws
@@ -1397,9 +1229,10 @@ class OneContractSchedule(OneContract):
         ws = self.ws
         
         ws['M2'].value = int(self.old_final_row_idx) - int(self.old_lease_start_row_idx) + 1
-        try:
+        
+        if self.type=='Remeasurement':
             ws['N2'].value = int(self.new_final_row_idx) - int(self.remeasurement_row_idx) + 1
-        except Exception:
+        else:
             ws['N2'].value = int(self.new_final_row_idx) - int(self.new_lease_start_row_idx) + 1
             
     def write_schedule_df(self):
@@ -1425,35 +1258,6 @@ class OneContractSchedule(OneContract):
             startrow = first_row, startcol=1)
     
         
-    def write_one_contract_schedule(self):
-        
-        '''
-        To call all the other functions 
-        '''
-        
-        self.get_one_contract_schedule_df()
-        self.convert_col_names()
-        self.write_meta_data()
-        self.__insert_rows__()
-        self.write_old_interest_rate()
-        self.write_new_interest_rate()
-        # self.write_old_lease_payment()
-        # self.write_new_lease_payment()
-        # self.write_old_main_table_formulas()
-        # self.write_new_main_table_formulas()
-        self.write_total_lease_period()
-        self.write_schedule_df()
-        self.write_old_period_formula()
-        self.write_new_period_formula()
-        
-        cond = self.df['Type'].isin(['Remeasurement','Disposal'])
-        if cond.all():
-            try:
-                self.get_disposal_row_idx(self.old_lease_payment_df)
-            except Exception:
-                pass
-            self.conditional_format()
-
 
 class OneContractDisclosure(OneContractSchedule):
     
@@ -1589,12 +1393,14 @@ class OneContractDisclosure(OneContractSchedule):
 
 
     def __init__(self, df, contract, fy_start, fy_end, pfy_start, output_fp,):
-        
+                
         OneContractSchedule.__init__(self, df, contract, fy_start, fy_end, pfy_start, output_fp,)
-
+        
         
     def __main__(self):
         
+        print(f'Writing contract: {self.contract}...')
+    
         OneContractSchedule.__main__(self)
         self.get_disclosure_date_formulae()
         self.get_disclosure_cell_formulae()        
@@ -1602,7 +1408,9 @@ class OneContractDisclosure(OneContractSchedule):
         self.format_disclosure()
         
         self.wb.save(self.fp)
-        print(f"Contract {self.contract} completed.")
+        
+        print(f"Completed.")
+
     
     
     def get_disclosure_cell_ref(self, col_header):
@@ -2493,4 +2301,33 @@ class AllDisclosure:
         for c in self.ws_lead[7]:
             c.font = Font(name='Arial', size=10, bold=True)
             c.alignment = Alignment(horizontal='center', vertical='center', wrapText=True)
+    
+
+#%% Tester
+if __name__ == "__main__":
+    
+    import inputs
+    
+    input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\INPUT\INPUT TEMPLATE.xlsx"
+    # output_fp = r"C:\Users\benjaminlye\Downloads\INPUT TEMPLATE - Copy.xlsx"
+    output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\OUTPUT\OUTPUT.xlsx"
+    
+    lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
+    lease_data_reader.__main__()
+    
+    df = lease_data_reader.df.copy()
+    # contract = 'CADCAM'
+    # contract = 'QADM'
+    # contract = 'QCLE'
+    contract = 'QTH'
+    pfy_start = datetime.date(2020, 1, 1)
+    fy_start = datetime.date(2021,1,1)
+    fy_end = pd.to_datetime('2021-12-31 00:00:00')
+
+    # self = OneContract(df, contract, fy_start, fy_end, pfy_start)
+    # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
+    self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
+    # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
+    
+
     
