@@ -23,6 +23,13 @@ class LeaseLiabilityWriter:
         self.write_all_contracts()
         self.write_all_disclosure()
         
+        msg = (
+            'End of process. Output is saved at:\n'
+            f'{self.output_fp}'
+            )
+        print(msg)
+
+        
         
     def create_output_wb(self, overwrite = False):
         
@@ -92,21 +99,25 @@ class LeaseLiabilityWriter:
 
             
 
+
 #%% Tester
 if __name__ == "__main__":
     
     
     #%%% BEN'S TESTER
-    if 0:
+    if 1:
         
         #%%%% 
         if 0:
             # mocked cases
             input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\INPUT TEMPLATE.xlsx"
             output_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT TEMPLATE 2021\OUTPUT.xlsx"
+        if 0:
+            input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\INPUT\INPUT TEMPLATE.xlsx"
+            output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\OUTPUT\OUTPUT_20220117_1453.xlsx"
         if 1:
-            input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\INPUT TEMPLATE.xlsx"
-            output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2020\OUTPUT.xlsx"
+            input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
+            output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\OUTPUT.xlsx"
         
         self = LeaseLiabilityWriter(input_fp, output_fp)
         lease_liability_writer = self
@@ -115,11 +126,20 @@ if __name__ == "__main__":
     if 0: 
         #%%%%  DEBUG
         pass
+        contract = 'CADCAM'
+        df, contract, fy_start, fy_end, pfy_start, output_fp = \
+            lease_data.df, contract, lease_data.fy_start, lease_data.fy_end, lease_data.pfy_start, output_fp
+            
+            
+        one_contract = engines.OneContract(df, contract, fy_start, fy_end, pfy_start)    
+        self = one_contract
+            
+        one_contract_schedule = engines.OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
+        self = one_contract_schedule
     
 
-    
-    #%%% ANIKA'S TESTER
-    if 1:
+        #%%% ANIKA'S TESTER
+    if 0:
         
         #%%%% 
 
