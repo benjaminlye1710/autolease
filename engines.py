@@ -1187,8 +1187,7 @@ class OneContractSchedule(OneContract):
         ws = self.ws
         first_row = self.first_row
         
-        cond = self.df['Type'].isin(['Addition'])
-        if cond.all():
+        if self.type == 'Addition':
             formulae_df = (self.get_new_formulae_df()).loc[:,:0]
             formulae_df.loc[:,0] = ''
         else:
@@ -1208,9 +1207,7 @@ class OneContractSchedule(OneContract):
         
         formulae_df = (self.get_new_formulae_df()).loc[:,:0] 
         
-        cond = self.df['Type'].str.contains('Remeasurement')
-        
-        if cond.all():
+        if self.type == 'Remeasurement':
             formulae_df.loc[0,0] = self.get_schedule_period_start()
         
         # write to excel
@@ -1697,10 +1694,16 @@ class OneContractDisclosure(OneContractSchedule):
         ## Following code is used to populate 'payments_1/2/3/4/5/later' and 'interest_1/2/3/4/5/later'
         i = 1
         while i < 7:
-            if (fy_end_ + relativedelta(years=i)).year <= self.disclosure_date_dict['end_date'].year:
+            
+            contract_ended = (fy_end_ + relativedelta(years=i)).year > self.disclosure_date_dict['end_date'].year
+             
+            if (not contract_ended and i < 6):
             # if contract ends after 'current' year:
                 start_ = nfy_start_idx + (i-1)*12
                 end_ = start_ + 11
+            elif (not contract_ended and i == 6):
+                start_ = nfy_start_idx + (i-1)*12
+                end_ = contract_end_idx
             else:
             # if contract ends in the 'current' year:
                 start_ = nfy_start_idx + (i-1)*12
@@ -1713,7 +1716,7 @@ class OneContractDisclosure(OneContractSchedule):
                 dic['payment_'+str(i)] = sum_formula(f"T{start_}", f"T{end_}", negative=True) # f'=-SUM(T{start_}:T{end_})'
                 dic['interest_'+str(i)] = sum_formula(f"U{start_}", f"U{end_}", negative=True) # f'=-SUM(U{start_}:U{end_})'
             
-            if end_ == contract_end_idx or cond_disposal.any():
+            if contract_ended or self.type=='Disposal':
                 if cond_disposal.any():
                     i = 1
                 while i < 7:
@@ -2113,23 +2116,26 @@ class AllDisclosure:
         # based on contract code
         
         DISC_FORMULA = [
+            # ROU
             np.nan,
-            f"= '{self.contract}'!AD10", # ROU
+            f"= '{self.contract}'!AD10*{curr_col}113", 
             f"= '{self.contract}'!AD11*{curr_col}114",
-            f"= '{self.contract}'!AD12",
-            f"= '{self.contract}'!AD13",
+            f"= '{self.contract}'!AD12*{curr_col}114",
+            f"= '{self.contract}'!AD13*{curr_col}114",
             0,
             f'= {curr_col}15-SUM({curr_col}9:{curr_col}13)',
             f"= '{self.contract}'!AD14*{curr_col}115", # f"= IF({curr_col}11=0,'{self.contract}'!V14,0)*{curr_col}115", %
-            f"= '{self.contract}'!AD15*{curr_col}115",
-            f"= '{self.contract}'!AD16",
+            f"= '{self.contract}'!AD15*{curr_col}116",
+            f"= '{self.contract}'!AD16*{curr_col}116",
             f"= '{self.contract}'!AD17*{curr_col}116",
             0,
             f'= {curr_col}21-SUM({curr_col}15:{curr_col}19)',
             f"= '{self.contract}'!AD18*{curr_col}117",# f"= IF(C17=0,('{self.contract}'!V14+'{self.contract}'!AG18),0)*C117", % 
             np.nan,
             np.nan,
-            f"= '{self.contract}'!AD21", # AccDep
+            
+            # AccDep
+            f"= '{self.contract}'!AD21*{curr_col}113", 
             f"= '{self.contract}'!AD22*{curr_col}114", # f"= -SUM('{self.contract}'!W14:W19)*C114",
             f"= '{self.contract}'!AD23*{curr_col}114",
             f'= {curr_col}28-SUM({curr_col}24:{curr_col}26)',
@@ -2142,12 +2148,16 @@ class AllDisclosure:
             f"= '{self.contract}'!AD27*{curr_col}117",# f"= IF(C30=0,-SUM('{self.contract}'!W14:W31),0)*C117", % 
             np.nan,
             np.nan,
-            f'= {curr_col}9-{curr_col}24', # Carrying value
+            
+            # Carrying value
+            f'= {curr_col}9-{curr_col}24', 
             f'= {curr_col}15-{curr_col}28',
             f'= {curr_col}21-{curr_col}34',
             np.nan,
             np.nan,
-            f"= '{self.contract}'!AD30*{curr_col}113", # Lease Liabilities
+            
+            # Lease Liabilities
+            f"= '{self.contract}'!AD30*{curr_col}113", 
             f"= '{self.contract}'!AD31*{curr_col}114",
             f"= '{self.contract}'!AD32*{curr_col}114",
             f"= '{self.contract}'!AD33*{curr_col}114",
@@ -2321,33 +2331,7 @@ class AllDisclosure:
     
 
 #%% Tester
-if __name__ == "__main__":
-    
-    if 0:
-        import inputs
-        
-        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\INPUT\INPUT TEMPLATE.xlsx"
-        # output_fp = r"C:\Users\benjaminlye\Downloads\INPUT TEMPLATE - Copy.xlsx"
-        output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\_TEST DATA\OUTPUT\OUTPUT.xlsx"
-        
-        lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
-        lease_data_reader.__main__()
-        
-        df = lease_data_reader.df.copy()
-        contract = 'CADCAM'
-        # contract = 'QADM'
-        # contract = 'QCLE'
-        # contract = 'QTH'
-        pfy_start = datetime.date(2020, 1, 1)
-        fy_start = datetime.date(2021,1,1)
-        fy_end = pd.to_datetime('2021-12-31 00:00:00')
-    
-        # self = OneContract(df, contract, fy_start, fy_end, pfy_start)
-        # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
-        self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
-        # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
-    
-#%% Tester
+if __name__ == '__main__':
     if 1:
     
         import inputs
@@ -2355,11 +2339,14 @@ if __name__ == "__main__":
         input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
         output_fp  = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\OUTPUT.xlsx"
         
+        input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\AOXIN 2021\INPUT TEMPLATE - Aoxin (26.01.2022) edited.xlsx"
+        output_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\AOXIN 2021\test.xlsx"
+
         lease_data_reader = inputs.LeaseDataReader(input_fp, sheet_name = 'Lease Data')
         lease_data_reader.__main__()
         
         df = lease_data_reader.df.copy()
-        contract = 'QSN2'
+        contract = '35'
         pfy_start = datetime.date(2020, 1, 1)
         fy_start = datetime.date(2021,1,1)
         fy_end = pd.to_datetime('2021-12-31 00:00:00')
@@ -2370,6 +2357,5 @@ if __name__ == "__main__":
         # self = OneContractSchedule(df, contract, fy_start, fy_end, pfy_start, output_fp)
         self = OneContractDisclosure(df, contract, fy_start, fy_end, pfy_start, output_fp)
         self.__main__()
+        
         # self = OneContractdf, contract, fy_start, fy_end, pfy_start, output_fp,
-
-    
