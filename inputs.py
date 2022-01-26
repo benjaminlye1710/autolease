@@ -1,4 +1,3 @@
-### Import from dependencies
 from dependencies import *
 
 # Initialise the excel misc functions to use
@@ -284,15 +283,13 @@ class LeaseDataReader(ExcelHelper):
             .pipe(convert_dtypes, 
                   ['Lease Start (PFY)', 'Lease End (PFY)', 'Lease Start', 
                    'Lease End', 'Early Termination? (date)'], np.datetime64)
-            )
-        
-        df = (
-            df
             .pipe(convert_dtypes,
-                  LeaseDataReader.HEADER_NUM_COL, object))
+                  LeaseDataReader.HEADER_NUM_COL, object)
+            )
         
         # fill down contract name
         df['Contract'] = df['Contract'].fillna(method="ffill")
+        df['Contract'] = df['Contract'].astype(str)
         
         # Normalise the string columns
         str_col_lst = \
@@ -492,6 +489,14 @@ class LeaseDataReader(ExcelHelper):
     
 #     lease_liability_writer = LeaseLiabilityWriter(input_fp, output_fp)
     
+# #%% Tester
+# if __name__ == "__main__":
+    
+#     input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL.xlsx"
+#     input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
+#     self = LeaseDataReader(input_fp, sheet_name = 'Lease Data',)
+#     self.__main__()
+
 #%% Tester
 if __name__ == "__main__":
     
@@ -499,3 +504,4 @@ if __name__ == "__main__":
     input_fp = r"D:\Ben\_Ref\Audit DA Curriculum\Module\frs116_automation\autolease_hm_cw\INPUT Q&M 2021\INPUT TEMPLATE - FINAL edited.xlsx"
     self = LeaseDataReader(input_fp, sheet_name = 'Lease Data',)
     self.__main__()
+
